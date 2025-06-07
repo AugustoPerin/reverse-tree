@@ -1,1 +1,3 @@
 build-and-upload.sh
+reverse_tree.egg-info/*
+reverse_tree/__pycache__/*
