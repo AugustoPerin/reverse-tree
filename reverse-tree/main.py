@@ -21,38 +21,30 @@ __version__ = "1.0.0"
 
 class ReverseTree:
     def __init__(self):
-        self.tree_chars = ['├──', '└──', '│', '─']
+        self.tree_chars = ["├──", "└──", "│", "─"]
         
     def parse_tree_line(self, line):
         """Parse a single line from tree output"""
-        # Remove tree characters and get indentation level
-        original_line = line
-        clean_line = line
-        
-        # Remove common tree characters
-        for char in ['├──', '└──', '├── ', '└── ', '│   ', '    ']:
-            clean_line = clean_line.replace(char, '')
-        
-        # Calculate indentation level
+        match = re.match(r"^(?:[│ ]*(?:├──|└──) )?([^\n]+)", line)
+        if not match:
+            return 0, "", False
+
+        filename_part = match.group(1)
         indent_level = 0
-        for char in original_line:
-            if char in ' │├└─':
-                if char == '│':
-                    indent_level += 1
-                elif char in '├└':
-                    break
-            else:
-                break
-        
-        # Clean the filename
-        filename = clean_line.strip()
-        
-        # Remove trailing / for directories
-        is_directory = filename.endswith('/')
+        indent_match = re.match(r"^([│ ]*)", line)
+        if indent_match:
+            indent_str = indent_match.group(1)
+            indent_level = indent_str.count("│   ") + indent_str.count("    ")
+            if line.strip().startswith("├──") or line.strip().startswith("└──"):
+                indent_level += 1
+
+        is_directory = filename_part.endswith("/")
         if is_directory:
-            filename = filename.rstrip('/')
+            filename = filename_part.rstrip("/")
+        else:
+            filename = filename_part
             
-        return indent_level, filename, is_directory
+        return indent_level, filename.strip(), is_directory
     
     def read_tree_file(self, tree_file):
         """Read and parse tree file"""
@@ -75,42 +67,46 @@ class ReverseTree:
         
         print(f"Creating structure in: {target_path}")
         
+        actual_root_path = target_path
+        first_line_processed = False
+
         for line in lines:
             if not line.strip():
                 continue
                 
-            # Skip the root directory line if it exists
-            if '/' in line and line.count('/') == 1 and line.strip().endswith('/'):
-                root_name = line.strip().rstrip('/')
-                # Update the target path to include root directory name
-                if not target_path.name == root_name:
-                    target_path = target_path / root_name
-                    path_stack = [target_path]
-                continue
-            
             indent_level, filename, is_directory = self.parse_tree_line(line)
             
             if not filename:
                 continue
-            
-            # Adjust path stack based on indentation
-            while len(path_stack) > indent_level + 1:
+
+            if not first_line_processed:
+                if is_directory:
+                    actual_root_path = target_path / filename
+                    actual_root_path.mkdir(parents=True, exist_ok=True)
+                    path_stack = [actual_root_path]
+                    print(f"Created directory: {actual_root_path.relative_to(target_path.parent)}")
+                else:
+                    current_path = target_path / filename
+                    current_path.parent.mkdir(parents=True, exist_ok=True)
+                    current_path.touch()
+                    print(f"Created file: {current_path.relative_to(target_path.parent)}")
+                first_line_processed = True
+                continue
+
+            while len(path_stack) > indent_level:
                 path_stack.pop()
             
-            # Create the full path
             current_path = path_stack[-1] / filename
             
             try:
                 if is_directory:
                     current_path.mkdir(parents=True, exist_ok=True)
                     path_stack.append(current_path)
-                    print(f"Created directory: {current_path.relative_to(target_path.parent)}")
+                    print(f"Created directory: {current_path.relative_to(actual_root_path.parent)}")
                 else:
-                    # Ensure parent directory exists
                     current_path.parent.mkdir(parents=True, exist_ok=True)
-                    # Create empty file
                     current_path.touch()
-                    print(f"Created file: {current_path.relative_to(target_path.parent)}")
+                    print(f"Created file: {current_path.relative_to(actual_root_path.parent)}")
                     
             except Exception as e:
                 print(f"Error creating {current_path}: {e}")
@@ -118,24 +114,18 @@ class ReverseTree:
     
     def run(self, tree_file=None, target_path=None):
         """Main execution function"""
-        # Default values
         if tree_file is None:
-            tree_file = '.tree'
+            tree_file = ".tree"
         if target_path is None:
-            target_path = '.'
+            target_path = "."
             
-        # Validate tree file
         if not os.path.exists(tree_file):
             print(f"Error: Tree file '{tree_file}' not found.")
             print("Create a .tree file with your directory structure or specify a different file with -f")
             sys.exit(1)
         
-        # Read and parse tree file
         lines = self.read_tree_file(tree_file)
-        
-        # Build structure
         self.build_structure(lines, target_path)
-        
         print(f"\nStructure created successfully from '{tree_file}'")
 
 def main():
@@ -171,8 +161,6 @@ Tree file format:
                        version=f'reverse-tree {__version__}')
     
     args = parser.parse_args()
-    
-    # Create and run reverse tree
     reverse_tree = ReverseTree()
     reverse_tree.run(tree_file=args.file, target_path=args.source)
 
